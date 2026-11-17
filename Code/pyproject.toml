@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solar-tracker"
+version = "1.0.0"
+description = "MXET 345 two-axis solar tracker: from-scratch numerical methods on a Raspberry Pi robot"
+requires-python = ">=3.9"
+dependencies = ["tomli; python_version < '3.11'"]
+
+[project.optional-dependencies]
+pi = ["adafruit-blinka", "adafruit-circuitpython-pca9685", "adafruit-circuitpython-tca9548a",
+      "adafruit-circuitpython-ina219", "adafruit-circuitpython-bno055"]
+analysis = ["numpy", "matplotlib"]
+dev = ["pytest", "numpy", "matplotlib"]
+
+[tool.setuptools.packages.find]
+include = ["solar_tracker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
