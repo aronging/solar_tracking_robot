@@ -5,8 +5,8 @@ Two-servo pan/tilt solar panel on the lab robot. The Pi predicts the sun from th
 current, and every ~12 minutes scans around the prediction and fits a cosine to learn the
 rig's built-in pointing errors. The wheels are used once, to face the robot south with a PID.
 
-Spec: `../mxet345-solar-tracker-software-overview.md`. This README covers how to run it and
-where this code deliberately differs from the spec.
+Design: `../Design Overview.md`. This README covers how to run it and where this code
+deliberately differs from the original build specification (in git history, commit `30ef60b`).
 
 **Status:** everything runs and is tested against the simulator on a laptop (190 tests).
 `hardware/real.py` has **not been run on the robot yet**. Start with the first power-up
