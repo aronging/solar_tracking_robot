@@ -1,0 +1,27 @@
+# THE one file to edit for this robot. Auto-loaded after config/default.toml.
+# Keys are in guide-step order (Code/README.md). Only keys that differ from default.toml.
+
+[hardware]
+# Step 5: lab/sensor_scan.py shows 0x41 (INA219) on this channel. REQUIRED, never guess.
+# mux_channel_panel = ?
+mux_channel_imu = 6          # Step 5: lab/test_sensor.py uses ch 6; confirm 0x28 with lab/sensor_scan.py
+servo_channel_pan = 13       # Step 6: lab/test_motor.py servo channels; swap if pan/tilt are reversed
+servo_channel_tilt = 12      # Step 6
+
+[site]                       # Step 6: where the robot runs
+name = "College Station"
+lat_deg = 30.6280
+lon_deg = -96.3344           # east positive
+declination_deg = 2.0        # Step 6: look up at NOAA (magnetic field calculator), east positive
+
+[servo]
+pan_sign = 1                 # Step 9: -1 if positive pan is not clockwise seen from above
+tilt_sign = 1                # Step 9: -1 if positive tilt does not lift the normal
+
+[panel]
+zero_offset_mA = 0.0         # Step 11: mean current with the panel covered
+
+[drive]
+left_motor_channels = [0, 1]    # Step 12: [fwd, rv] from lab/test_motor.py; swap pairs if left/right are reversed
+right_motor_channels = [2, 3]   # Step 12
+turn_sign = 1                   # Step 12: -1 if the bench turn goes the wrong way

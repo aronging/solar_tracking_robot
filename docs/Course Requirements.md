@@ -54,8 +54,8 @@ Two-wheel differential-drive robot with a Raspberry Pi.
 | Part | Facts |
 |---|---|
 | Raspberry Pi | Model not stated. Runs all Python. Wi-Fi, headless |
-| Adafruit 16-ch PWM/Servo HAT | PCA9685 at I2C **0x40**. Drives the servos and the wheel-motor drivers. One PWM frequency for all channels (about 50 Hz as the lab sets it) |
-| 2x REV HD Hex motor with encoder | Wheel drive. Encoders read through `gpiozero.RotaryEncoder` on Pi GPIO. Gearbox ratio not given. The three small green boards on the deck are presumably the drivers [Guessing]; the channel mapping is unknown |
+| Adafruit 16-ch PWM/Servo HAT | PCA9685 at I2C **0x40**. Drives the servos and the wheel-motor drivers. One PWM frequency for all channels (100 Hz, set by the lab's `motor_servo_pwm.py`) |
+| 2x REV HD Hex motor with encoder | Wheel drive. Encoders read through `gpiozero.RotaryEncoder` on Pi GPIO. Gearbox ratio not given. The three small green boards on the deck are presumably the drivers [Guessing]. Each motor is a FWD/RV channel pair on the HAT: 0/1 and 2/3 in `lab/test_motor.py` |
 | 2 servos | Free for add-ons (we use SG90 servos for pan and tilt; see the assembly guide) |
 | SparkFun Qwiic Mux | TCA9548A at **0x70**, 8 channels, I2C |
 | Sensors on the mux | BNO055 IMU (0x28), APDS9960 (0x39), VL53L4CD (0x29). Our tracker uses only the BNO055 |
@@ -67,10 +67,10 @@ Two-wheel differential-drive robot with a Raspberry Pi.
 3. Every session: `source ~/env/bin/activate`. Interpreter: `/home/pi/env/bin/python`. Project folder: `/home/pi/mxet345_project`.
 4. For outdoor work the team uses an Ethernet cable laptop to Pi, with a phone hotspot as fallback.
 
-**Lab-provided scripts** (from Canvas, not stored in this repo): `motor_servo_pwm.py` (PCA9685 wrapper), `sensor_module.py` (`Sensor_Thread`), `test_motor.py`, `test_sensor.py`, `test_encoder.py`. The tracker does **not** import them. Do not run `Sensor_Thread` at the same time as the tracker unless it uses the tracker's bus lock (`hardware.real.BUS_LOCK`).
+**Lab-provided scripts** (from Canvas, stored unchanged in `Code/lab/`): `motor_servo_pwm.py` (PCA9685 wrapper: `PWM_Motor`, `Servo`), `sensor_module.py` (`CreateMuxI2C`, `Sensor_Thread`), `sensor_scan.py` (lists the I2C addresses on each mux channel), `test_motor.py`, `test_sensor.py`, `test_encoder.py`, plus the sensor simple-tests. The tracker imports `motor_servo_pwm.py` and `sensor_module.py`. `test_sensor.py` puts the BNO055 on mux channel 6; `test_motor.py` uses servo channels 13 and 12. Run `test_motor.py` only with the wheels off the ground and the servo horns off: it spins both wheels and swings the servos through 0-180°. Do not run `Sensor_Thread` at the same time as the tracker unless it uses the tracker's bus lock (`hardware.real.BUS_LOCK`).
 
 ## 5. Still open (as of the last documents)
 
 - Due dates, weights, report and presentation format, library policy (section 1).
-- Wheel-driver wiring and PWM-to-motor mapping. Only the `rc_pulse` scheme exists in the code, and the turn is blocked until the `drive.*` config keys are set. `--skip-turn` always works.
+- Which wheel is left and the turn direction. The code drives each wheel through the lab's `PWM_Motor` (FWD/RV pair, `drive.left_motor_channels` / `drive.right_motor_channels` in `Code/config/robot.toml`, default [0, 1] and [2, 3]). Verify at the bench turn. `--skip-turn` always works.
 - Whether the robot may run outdoors. The team has planned outdoor sessions.

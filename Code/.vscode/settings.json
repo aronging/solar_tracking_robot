@@ -1,0 +1,14 @@
+{
+  // Pi interpreter. On the Windows laptop run "Python: Select Interpreter" once and pick .venv.
+  "python.defaultInterpreterPath": "/home/pi/env/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+  // The git repo root is the parent of Code/.
+  "git.openRepositoryInParentFolders": "always",
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true
+  }
+}

@@ -94,6 +94,9 @@ ANALYSIS = [("plot_session.py", "cycle.csv", "dir"), ("tracking_gain.py", "cycle
 
 def analyze(log_dir: str) -> int:
     d = Path(log_dir)
+    if log_dir == "latest":                     # newest session folder (names sort by time)
+        dirs = sorted(p for p in (CODE_DIR / "logs").glob("*") if p.is_dir())
+        d = dirs[-1] if dirs else d
     if not d.is_dir():
         print("not a log folder: %s" % d)
         return 2

@@ -15,7 +15,7 @@ from solar_tracker.supervisor import Options, Supervisor
 
 
 def run(tmp_path, params, opts=None, on_tick=None, body="session_sun", overrides=()):
-    cfg = load_config(overrides=['hardware.backend="sim"', *overrides])
+    cfg = load_config(overrides=['hardware.backend="sim"', *overrides], use_robot_file=False)
     rig = make_sim_rig(cfg, params)
     log = SessionLogger(str(tmp_path), "test", rig.clock, fsync=False)
     sup = Supervisor(cfg, rig, log, opts or Options(), random.Random(params.seed), on_tick)

@@ -6,4 +6,3 @@ logs/
 analysis_out/
 config/servo_cal.json
 config/site_*.toml
-!config/site_example.toml

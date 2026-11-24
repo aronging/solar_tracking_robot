@@ -3,7 +3,7 @@
 **Updated:** Nov 17, 2026. Mechanical facts match `Hardware List & Assembly Guide.pdf` (re-exported Nov 17) and the STEP files in `CAD/`. Electronics facts match `Code/config/default.toml` and the code.
 **Replaces:** `mxet345-solar-tracker-BOM.md` / `.xlsx` and the hardware parts of the old plan and breakdown. The originals are in git history (commit `30ef60b`).
 **Confidence tags:** [Certain] / [Likely] / [Guessing]. Prices tagged Certain were checked on the vendor page on Oct 27, 2026.
-**Not recorded anywhere:** whether each part has arrived, and the HAT and mux channel numbers. Fill those in a site config (`Code/config/site_example.toml`).
+**Not recorded anywhere:** whether each part has arrived, and the INA219 mux channel. Channels go in `Code/config/robot.toml` (auto-loaded). It is prefilled from the lab scripts in `Code/lab/`: BNO055 on mux channel 6 (`test_sensor.py`), pan servo 13 and tilt servo 12, wheels on FWD/RV pairs [0, 1] and [2, 3] (`test_motor.py`). Find the mux channels with `python lab/sensor_scan.py`.
 
 ## 1. Hardware at a glance
 
@@ -25,7 +25,7 @@
 - Use the INA219's **16 V / 400 mA range** (0.1 mA per count). Above about 350 mA it drops to the 3.2 A range at 0.8 mA per count (8x coarser). The code warns above 380 mA.
 - Solder 22 AWG leads to the panel's two pads. The panel has no leads and no mounting holes. Strain-relieve the leads at the frame.
 - Sanity check: bus voltage with the panel shorted should be near 0 V. Reversed polarity gives negative current.
-- INA219 goes on a free mux channel through a Qwiic/STEMMA QT cable. Servos go on two free HAT channels (S/V+/G).
+- INA219 goes on a free mux channel through a Qwiic/STEMMA QT cable. Servos go on two free HAT channels (S/V+/G): 13 (pan) and 12 (tilt), as in `lab/test_motor.py`.
 - Tilt-servo wire needs a slack loop of at least 60 mm so the turntable can pan ±90° (assembly guide, step 8).
 
 **I2C address map**
@@ -35,7 +35,7 @@
 | PCA9685 PWM HAT | 0x40 | Upstream (on the Pi) |
 | TCA9548A mux | 0x70 | Upstream |
 | INA219 (panel) | **0x41** (A0 jumper bridged) | Mux channel |
-| BNO055 | 0x28 | Mux channel |
+| BNO055 | 0x28 | Mux channel 6 (`lab/test_sensor.py`) |
 | APDS9960 / VL53L4CD | 0x39 / 0x29 | Mux channel (unused) |
 | DS3231 RTC (only if bought) | 0x68 | Mux channel |
 
@@ -43,8 +43,8 @@
 1. The mux connects the selected channel to the upstream bus, so 0x40 and 0x70 are visible on every channel. The INA219 must not stay at its default 0x40, so bridge its A0 jumper (0x41).
 2. The PCA9685's power-on "all-call" address is 0x70, the same as the mux. [Likely] Adafruit's driver clears all-call when it initialises, and the robot already runs both as shipped. **Do not re-address the mux** (that means soldering lab equipment). In code, initialise the PCA9685 before touching the mux. The code does this.
 3. One lock covers every mux channel selection and read (`hardware.real.BUS_LOCK`). Do not read the INA219 or BNO055 from a second thread without it.
-4. The PCA9685 has one PWM frequency for all channels. The lab's script sets it for the motors and servos. The tracker reads it back, expects about 50 Hz, and does not change it unless `hardware.allow_set_pca9685_hz = true` (it would alter wheel-motor behaviour).
-5. Run `i2cdetect -y 1` on the Pi to see what is on the bus.
+4. The PCA9685 has one PWM frequency for all channels. The lab's `Code/lab/motor_servo_pwm.py` sets it to **100 Hz** for the motors and servos, and the tracker drives the PCA9685 through that file. Do not change the frequency (it would alter wheel-motor behaviour).
+5. Run `i2cdetect -y 1` on the Pi to see what is on the bus. To see what is on each mux channel, run `python lab/sensor_scan.py` from `Code/`.
 
 **Servo power.** [Guessing] The HAT's servo rail may share the Pi's 5 V converter. If servo moves reset the Pi: use a separate 5-6 V supply rated 3 A or more (common ground, inline fuse) and a 470-1000 µF capacitor on the HAT. The software slew limit (60°/s) already avoids slamming a servo.
 

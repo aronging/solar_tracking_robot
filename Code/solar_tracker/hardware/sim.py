@@ -19,7 +19,7 @@ from ..solar.clearsky import attenuation
 from ..solar.reference_noaa import noaa_azel
 from .base import ImuCal, PanelReading, Rig, ServoBase, ServoCal, mean_std
 
-PCA_STEP_US = 20000.0 / 4096.0          # PCA9685 resolution at 50 Hz
+PCA_STEP_US = 10000.0 / 4096.0          # PCA9685 resolution at 100 Hz (lab/motor_servo_pwm.py)
 
 
 @dataclass
@@ -195,7 +195,7 @@ def make_sim_rig(cfg, params: Optional[SimParams] = None) -> Rig:
     world = SimWorld(cfg, params or SimParams())
     s = cfg.servo
     default = ServoCal(s.deg_per_us, 0.0, s.pulse_min_us, s.pulse_max_us, s.center_us)
-    info = {"backend": "sim", "i2c_scan": ["0x40", "0x70"], "pca9685_hz": 50.0,
+    info = {"backend": "sim", "i2c_scan": ["0x40", "0x70"], "pca9685_hz": 100.0,
             "ntp_synced": True, "seed": world.p.seed, "code_dir": str(CODE_DIR)}
     return Rig(world.clock, SimServos(world, {"pan": default, "tilt": default}), SimPanel(world),
                SimImu(world), SimDrive(world), info, world)

@@ -1,7 +1,7 @@
 # MXET 345 Solar Tracker: Design Overview
 
 **Updated:** Nov 17, 2026. Matches the code in `Code/`, `Hardware List & Assembly Guide.pdf` (re-exported Nov 17) and `CAD/Solar Tracker Assembly.step` (rebuilt Nov 17).
-**Replaces:** the plan, build plan, breakdown and software-specification files. The originals are in git history (commit `30ef60b`). The `Code/README.md` "Decisions" list records where the code departs from that specification.
+**Replaces:** the plan, build plan, breakdown and software-specification files. The originals are in git history (commit `30ef60b`). The "Decisions" list in `Code/docs/decisions.md` records where the code departs from that specification.
 **Companion files:** `Hardware & BOM.md` (parts, wiring, I2C) · `Course Requirements.md` (grading, deliverables, lab robot) · `Code/README.md` (install, commands, logs, figures) · `Code/docs/method_code_map.md` (method to code).
 **Confidence tags:** [Certain] / [Likely] / [Guessing]. Untagged text comes from the team's documents or the code.
 
@@ -20,9 +20,9 @@ The wheels run once per session: a PID turns the robot to face roughly south. Th
 ## 2. Status
 
 - All software runs and is tested against the built-in simulator on a laptop (test suite and counts: `Code/README.md`).
-- `hardware/real.py` has **not been run on the robot**. Use the first power-up checklist in `Code/README.md`.
+- `hardware/real.py` has **not been run on the robot**. Follow the step-by-step guide in `Code/README.md` (steps 5 to 12).
 - No hardware logs are in this folder. The figures in `Code/analysis_out/` come from the simulator and synthetic data.
-- Wheel-driver wiring is unknown. The turn works only after `drive.*` is configured; `--skip-turn` always works.
+- The wheels are driven as FWD/RV channel pairs through the lab's `PWM_Motor` (`Code/lab/motor_servo_pwm.py`): `drive.left_motor_channels = [0, 1]`, `drive.right_motor_channels = [2, 3]` in `Code/config/robot.toml`, from `Code/lab/test_motor.py`. Which pair is left is verified at the bench turn; `--skip-turn` always works.
 
 ## 3. Physical system (from the Nov 10 assembly guide)
 
@@ -57,7 +57,7 @@ The wheels run once per session: a PID turns the robot to face roughly south. Th
 Session pipeline: **Preflight → Coarse align → Acquire → Track (with periodic Refine) → Park.** Hold is entered on cloud cover. Any fault parks safely.
 
 ### 5.0 Preflight and calibration
-- **Preflight:** I2C scan, PCA9685 frequency read-back (must be about 50 Hz; the code does not change it), panel Isc and bus-voltage sanity check, IMU heading and calibration status (magnetometer must be calibrated for the turn), clock sync, sun position now, a short servo wiggle.
+- **Preflight:** I2C scan (the PCA9685 runs at 100 Hz, set by the lab's `Code/lab/motor_servo_pwm.py`), panel Isc and bus-voltage sanity check, IMU heading and calibration status (magnetometer must be calibrated for the turn), clock sync, sun position now, a short servo wiggle.
 - **Servo calibration (graded method 2, linear least squares).** Step each servo up then down its pulse range. Type in the protractor or phone-inclinometer angle at each step. Fit `angle = m·(pulse − 1500) + c` per direction. Report residual RMS and **hysteresis** (up/down gap). The result goes to `config/servo_cal.json`. Defaults before calibration: 500–2500 µs, 0.09°/µs [Guessing]. Simulated demo data gives about 0.092°/µs and 1.4–1.6° hysteresis.
 
 ### 5.1 Stage 1: predict the sun (method 1)
@@ -113,11 +113,11 @@ cli.py → supervisor.py (state machine, scheduling, safety)
 ```
 
 - **Algorithms never touch hardware.** They take callbacks or plain lists. The same code runs on the robot, in the simulator and in unit tests.
-- **Numerics use only the standard library.** NumPy appears in tests, analysis and the simulator as a reference. Hardware libraries are imported lazily, so everything imports on Windows and Linux without Pi packages.
+- **Numerics use only the standard library.** NumPy appears in tests, analysis and the simulator as a reference. Hardware libraries are imported lazily, so everything imports on Windows and Linux without Pi packages. On the robot, `hardware/real.py` drives the servos and wheels through the lab's `Code/lab/motor_servo_pwm.py` and selects mux channels through `Code/lab/sensor_module.py`.
 - **States:** `PREFLIGHT → COARSE_ALIGN → ACQUIRE → TRACK ⇄ HOLD → PARK → DONE`, and `FAULT` from anywhere.
 - **Simulator:** virtual clock (a 6-hour day runs in about 6 s), NOAA-series "true" sun, cosine panel with noise, servo backlash and calibration error, injected true offsets, clouds, a movable lamp, a yaw plant. It is the only place with ground truth, so it is where the offset-estimation accuracy claim is tested. Same seed gives the same log.
 - **Fail-safe rules:**
-  - A required hardware value that is unset (`mux_channel_panel`, `mux_channel_imu`, `servo_channel_pan`, `servo_channel_tilt`, and `drive.*` for the wheels) stops the real backend. It never guesses a channel.
+  - A required hardware value that is unset (`mux_channel_panel`, `mux_channel_imu`, `servo_channel_pan`, `servo_channel_tilt`, and `drive.left_motor_channels` / `drive.right_motor_channels` for the wheels) stops the real backend. It never guesses a channel.
   - Wheels run only in COARSE_ALIGN with explicit consent.
   - Servo commands are clamped to ±85° and slew-limited. Pulses stay inside the calibrated range.
   - A bad scan never moves the offsets.
@@ -145,7 +145,7 @@ The full generated table with line numbers and test files is `Code/docs/method_c
 
 ## 8. Where the code differs from the original specification
 
-Full list: `Code/README.md`, section "Decisions". The ones that matter for the report:
+Full list: `Code/docs/decisions.md`, section "Decisions". The ones that matter for the report:
 - `refine.max_cond` is 2e5, not 1e4: `cond₂(MᵀM)` is 2.3e4 at ±15° and 1.2e5 at ±10°.
 - The offset comes directly from the peak command. The earlier formula had the wrong sign and was also wrong when a command was clamped.
 - The acquire parabola uses the bracket ends plus the best golden point (section 5.3).
@@ -186,8 +186,8 @@ Nothing is debugged for the first time outdoors. Ladder: unit tests and simulato
 
 ## 10. Open items
 
-- Servo channels on the HAT, mux channels for the INA219 and BNO055: not recorded. Read them from the wiring, set them in a site config, confirm with `preflight`.
-- Wheel-driver wiring, channel mapping, direction scheme, gear ratio (section 2).
+- INA219 mux channel: not recorded. Find the channel showing 0x41 with `Code/lab/sensor_scan.py` and set `mux_channel_panel` in `Code/config/robot.toml`. The other channels are prefilled from the lab scripts (BNO055 on mux channel 6 from `lab/test_sensor.py`; pan servo 13, tilt servo 12 from `lab/test_motor.py`). Confirm all with `preflight`.
+- Which wheel pair is left, the turn direction (`turn_sign`) and the gear ratio (section 2).
 - Pi model and Python version; whether the INA219 package is installed in `~/env` [Guessing: it is missing and needs internet once].
 - Real test-site coordinates and magnetic declination (placeholder: College Station, 2.0°).
 - Clear-sky constants and cloud thresholds: tune on the first outdoor session.

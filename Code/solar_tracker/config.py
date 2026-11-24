@@ -1,7 +1,7 @@
 """Configuration: nested dataclasses loaded from TOML (spec section 10).
 
-Load order: config/default.toml -> extra files (--config) -> ``section.key=value``
-overrides (--set). Units are in the key names. Hardware values that are unknown are
+Load order: config/default.toml -> config/robot.toml (if present) -> extra files (--config)
+-> ``section.key=value`` overrides (--set). Units are in the key names. Hardware values that are unknown are
 None; TOML has no null, so a required key is simply absent (commented out) in the file.
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ except ImportError:                     # pragma: no cover - Python 3.9/3.10 on 
 
 CODE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_TOML = CODE_DIR / "config" / "default.toml"
+ROBOT_TOML = CODE_DIR / "config" / "robot.toml"      # the one file the team edits
 
 
 class ConfigError(ValueError):
@@ -35,17 +36,12 @@ class Site:
 @dataclass
 class Hardware:
     backend: str = "real"               # "real" | "sim"
-    i2c_bus: int = 1
-    pca9685_address: int = 0x40
-    mux_address: int = 0x70
     ina219_address: int = 0x41
     imu_address: int = 0x28
     mux_channel_panel: Optional[int] = None    # REQUIRED for real hardware
     mux_channel_imu: Optional[int] = None      # REQUIRED for real hardware
     servo_channel_pan: Optional[int] = None    # REQUIRED for real hardware
     servo_channel_tilt: Optional[int] = None   # REQUIRED for real hardware
-    pca9685_expected_hz: float = 50.0
-    allow_set_pca9685_hz: bool = False         # opt-in: set 50 Hz ourselves (affects the wheels)
     overrange_mA: float = 380.0
 
 
@@ -65,9 +61,8 @@ class Servo:
 
 @dataclass
 class Drive:
-    left_channel: Optional[int] = None         # REQUIRED for the real turn
-    right_channel: Optional[int] = None        # REQUIRED for the real turn
-    direction_scheme: Optional[str] = None     # REQUIRED for the real turn
+    left_motor_channels: Optional[list] = None    # [fwd, rv] PCA channels; REQUIRED for the real turn
+    right_motor_channels: Optional[list] = None   # [fwd, rv] PCA channels; REQUIRED for the real turn
     turn_sign: int = 1
     left_sign: int = 1
     right_sign: int = 1
@@ -230,6 +225,11 @@ def validate(cfg: Config) -> None:
     check(cfg.servo.slew_deg_per_s > 0, "servo.slew_deg_per_s", "must be positive")
     check(0 < cfg.drive.max_duty <= 1, "drive.max_duty", "must be in (0, 1]")
     check(cfg.drive.turn_sign in (1, -1), "drive.turn_sign", "must be +1 or -1")
+    for side in ("left", "right"):
+        ch = getattr(cfg.drive, side + "_motor_channels")
+        check(ch is None or (isinstance(ch, list) and len(ch) == 2 and len(set(ch)) == 2 and
+                             all(type(c) is int and 0 <= c <= 15 for c in ch)),
+              "drive.%s_motor_channels" % side, "must be [fwd, rv]: two different ints 0..15")
     check(cfg.align.integral_mode in ("euler", "trapezoid", "simpson"), "align.integral_mode",
           "must be euler|trapezoid|simpson")
     check(10 <= cfg.refine.spread_deg <= 20, "refine.spread_deg", "must be in [10, 20]")
@@ -244,11 +244,14 @@ def validate(cfg: Config) -> None:
 
 
 def load_config(paths: Iterable[str] = (), overrides: Iterable[str] = (),
-                use_default_file: bool = True) -> Config:
-    """Build the resolved Config. ``overrides`` are 'section.key=value' strings."""
+                use_default_file: bool = True, use_robot_file: bool = True) -> Config:
+    """Build the resolved Config. ``overrides`` are 'section.key=value' strings.
+    config/robot.toml is loaded after default.toml when it exists (tests pass
+    use_robot_file=False to get the pristine defaults)."""
     cfg = Config()
-    files = ([DEFAULT_TOML] if use_default_file and DEFAULT_TOML.exists() else []) + \
-            [Path(p) for p in paths]
+    files = [f for f, on in ((DEFAULT_TOML, use_default_file),
+                             (ROBOT_TOML, use_default_file and use_robot_file))
+             if on and f.exists()] + [Path(p) for p in paths]
     for path in files:
         try:
             with open(path, "rb") as fh:
@@ -278,4 +281,4 @@ def require(cfg: Config, *dotted_keys: str) -> None:
 
 REQUIRED_REAL = ("hardware.mux_channel_panel", "hardware.mux_channel_imu",
                  "hardware.servo_channel_pan", "hardware.servo_channel_tilt")
-REQUIRED_DRIVE = ("drive.left_channel", "drive.right_channel", "drive.direction_scheme")
+REQUIRED_DRIVE = ("drive.left_motor_channels", "drive.right_motor_channels")

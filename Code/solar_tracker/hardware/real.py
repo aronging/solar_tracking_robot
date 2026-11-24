@@ -1,11 +1,13 @@
 """Real Raspberry Pi backend (spec 8.2). Importable anywhere: every hardware library is
 imported inside make_real_rig(), never at module level.
 
-Bus rules implemented here (spec 3.2):
-- order: I2C bus -> PCA9685 -> mux; the mux is never re-addressed;
-- the PCA9685 frequency is read back and must be ~50 Hz; it is NOT changed unless
-  hardware.allow_set_pca9685_hz is true (changing it alters wheel-motor behaviour);
-- every mux-using read happens under one RLock (BUS_LOCK);
+The bus is opened with the lab scripts in Code/lab/ (put on sys.path in make_real_rig):
+- lab/motor_servo_pwm.py `_PCA9685()` opens the PCA9685 HAT (0x40) and sets it to 100 Hz;
+  the servo pulse period is computed from the frequency read back. It is opened FIRST
+  (its init disables the PCA all-call address 0x70, which the mux uses);
+- lab/sensor_module.py `CreateMuxI2C(channel)` gives each mux (0x70) channel for the
+  INA219 and BNO055; the wheels are two lab `PWM_Motor(fwd, rv)` objects;
+- every bus access happens under one RLock (BUS_LOCK);
 - unknown channels are never guessed: a None config value raises ConfigError.
 
 NOT YET RUN ON THE ROBOT: written against the Adafruit CircuitPython APIs; verify with
@@ -15,12 +17,13 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 import threading
 import time
 from typing import Optional
 
 from ..clock import SystemClock
-from ..config import CODE_DIR, REQUIRED_DRIVE, REQUIRED_REAL, ConfigError, require
+from ..config import CODE_DIR, REQUIRED_DRIVE, REQUIRED_REAL, require
 from ..geometry import clamp, wrap360
 from .base import ImuCal, PanelReading, Rig, ServoBase, load_servo_cal, mean_std
 
@@ -104,48 +107,39 @@ class RealImu:
 
 
 class RealDrive:
-    """Turn-in-place wheel drive. The wheel-driver wiring is UNKNOWN (spec 17.3), so
-    nothing is written to any channel until drive.left_channel, drive.right_channel and
-    drive.direction_scheme are set. Implemented scheme:
+    """Turn-in-place wheel drive through two lab PWM_Motor objects (FWD/RV channel pair,
+    duty -100..100 %). The motors are created on the first set_turn, after
+    drive.left_motor_channels / right_motor_channels are checked, so a servo-only session
+    never touches a wheel channel. ``motor_factory(fwd, rv)`` is the lab PWM_Motor class
+    on the robot and a fake in the tests. Like the lab's test_motor.py, each PWM_Motor
+    re-opens the PCA9685 at 100 Hz, so the servo outputs blip for a few ms on the first turn."""
 
-      "rc_pulse": each driver takes an RC-style pulse, 1500 us = stop, +-500 us = full.
-
-    If the lab's test_motor.py drives the motors differently, add that scheme here
-    (copy its convention; do not guess).
-    """
-
-    def __init__(self, pca, cfg, period_us: float):
-        self.pca, self.cfg, self.period_us = pca, cfg, period_us
-        self._armed = False
-
-    def _write(self, left: float, right: float) -> None:
-        d = self.cfg.drive
-        with BUS_LOCK:
-            for ch, v in ((d.left_channel, left * d.left_sign), (d.right_channel, right * d.right_sign)):
-                pulse = 1500.0 + 500.0 * clamp(v, -d.max_duty, d.max_duty)
-                self.pca.channels[ch].duty_cycle = int(round(pulse / self.period_us * 65535))
+    def __init__(self, cfg, motor_factory):
+        self.cfg, self._factory = cfg, motor_factory
+        self._motors = None                 # (left, right) once the wheels were driven
 
     def set_turn(self, u: float) -> None:
         d = self.cfg.drive
         require(self.cfg, *REQUIRED_DRIVE)
-        if d.direction_scheme != "rc_pulse":
-            raise ConfigError("drive.direction_scheme=%r is not implemented; only 'rc_pulse' is. "
-                              "Add the lab's scheme to hardware/real.py:RealDrive"
-                              % d.direction_scheme)
-        self._armed = True
         u = clamp(u, -d.max_duty, d.max_duty) * d.turn_sign
-        self._write(u, -u)                  # clockwise: left wheel forward, right wheel back
+        with BUS_LOCK:
+            if self._motors is None:
+                self._motors = (self._factory(*d.left_motor_channels),
+                                self._factory(*d.right_motor_channels))
+            left, right = self._motors      # clockwise: left wheel forward, right wheel back
+            left.set_motor_duty(100.0 * u * d.left_sign)
+            right.set_motor_duty(-100.0 * u * d.right_sign)
 
     def stop(self) -> None:
-        """Idempotent; retries once; never raises. No-op if the wheels were never driven."""
-        if not self._armed:
-            return
-        for _ in range(2):
-            try:
-                self._write(0.0, 0.0)
-                return
-            except Exception:
-                time.sleep(0.02)
+        """Idempotent; retries once per motor; never raises. No-op if never driven."""
+        for motor in self._motors or ():
+            for _ in range(2):
+                try:
+                    with BUS_LOCK:
+                        motor.stop_motor()
+                    break
+                except Exception:
+                    time.sleep(0.02)
 
 
 def _versions() -> dict:
@@ -166,30 +160,22 @@ def _versions() -> dict:
 
 def make_real_rig(cfg) -> Rig:
     """Open the hardware in the mandated order and return the Rig. Raises ConfigError for
-    a missing required value or a PCA9685 that is not at ~50 Hz."""
+    a missing required value."""
     require(cfg, *REQUIRED_REAL)
     h = cfg.hardware
-    import board                                   # lazy: Raspberry Pi only
-    import busio
-    import adafruit_tca9548a
-    from adafruit_pca9685 import PCA9685
+    lab = str(CODE_DIR / "lab")
+    if lab not in sys.path:
+        sys.path.append(lab)
+    from motor_servo_pwm import _PCA9685, PWM_Motor   # lazy: Raspberry Pi only (lab scripts)
+    from sensor_module import CreateMuxI2C
     from adafruit_ina219 import INA219
     import adafruit_bno055
 
-    i2c = busio.I2C(board.SCL, board.SDA)
-    pca = PCA9685(i2c, address=h.pca9685_address)  # FIRST: its init disables all-call (0x70)
-    hz = float(pca.frequency)
-    if abs(hz - h.pca9685_expected_hz) > 0.1 * h.pca9685_expected_hz:
-        if not h.allow_set_pca9685_hz:
-            raise ConfigError(
-                "PCA9685 frequency reads %.1f Hz, expected ~%.0f Hz. Not changing it (it is shared "
-                "with the wheel motors). After a power cycle run the lab's motor_servo_pwm setup "
-                "first, or set hardware.allow_set_pca9685_hz=true if you accept changing it."
-                % (hz, h.pca9685_expected_hz))
-        pca.frequency = h.pca9685_expected_hz
+    with BUS_LOCK:
+        pca = _PCA9685().pca                       # FIRST: 0x40 @ 100 Hz, disables all-call (0x70)
         hz = float(pca.frequency)
     period_us = 1.0e6 / hz
-    mux = adafruit_tca9548a.TCA9548A(i2c, address=h.mux_address)
+    i2c = pca.i2c_device.i2c
 
     scan = []
     try:
@@ -200,7 +186,7 @@ def make_real_rig(cfg) -> Rig:
         log.warning("i2c scan failed: %r", exc)
 
     with BUS_LOCK:
-        ina = INA219(mux[h.mux_channel_panel], addr=h.ina219_address)
+        ina = INA219(CreateMuxI2C(h.mux_channel_panel), addr=h.ina219_address)
         ina.set_calibration_16V_400mA()
         sample_period_s = 0.002
         try:                                       # 12-bit, 128-sample hardware averaging (~68 ms)
@@ -210,7 +196,7 @@ def make_real_rig(cfg) -> Rig:
             sample_period_s = 0.07
         except Exception as exc:
             log.warning("INA219 hardware averaging not available (%r); averaging in software", exc)
-        bno = adafruit_bno055.BNO055_I2C(mux[h.mux_channel_imu], address=h.imu_address)
+        bno = adafruit_bno055.BNO055_I2C(CreateMuxI2C(h.mux_channel_imu), address=h.imu_address)
 
     clock = SystemClock()
     servos = RealServos(clock, cfg.servo, load_servo_cal(cfg.servo, CODE_DIR), pca,
@@ -223,4 +209,4 @@ def make_real_rig(cfg) -> Rig:
         i2c.deinit()
 
     return Rig(clock, servos, RealPanel(ina, cfg, sample_period_s), RealImu(bno),
-               RealDrive(pca, cfg, period_us), info, None, closer)
+               RealDrive(cfg, PWM_Motor), info, None, closer)
